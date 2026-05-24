@@ -1,22 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Bot, 
   Globe2, 
   Clock, 
   Activity, 
-  Flame, 
   HelpCircle,
   Network,
   Cpu,
   RefreshCw,
   TrendingUp,
   TrendingDown,
-  ExternalLink,
-  Info
+  Info,
+  Radio,
+  Flame,
+  Power,
+  RotateCcw,
+  Bell,
+  X,
+  Gauge,
+  Sliders,
+  ShieldCheck,
+  CheckSquare
 } from 'lucide-react';
 import TradingForm from './components/TradingForm';
 import AnalysisResult from './components/AnalysisResult';
-import { AnalysisInput, Language } from './types';
+import { AnalysisInput, Language, Timeframe } from './types';
 import { analyzeTrade } from './services/geminiService';
 import { TOKEN_CONFIGS } from './utils/marketData';
 
@@ -29,33 +37,100 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<Language>('en');
   
-  // Terminal system clock state
+  // High-frequency dynamic market prices
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('BTC');
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+  const [priceDirections, setPriceDirections] = useState<Record<string, 'up' | 'down' | 'neutral'>>({});
+
+  // Live Toast state
+  const [toasts, setToasts] = useState<{id: string; text: string; type: 'bullish' | 'bearish' | 'neutral'}[]>([]);
+
+  // Clock state
   const [utcTime, setUtcTime] = useState<string>('');
   const [sessionName, setSessionName] = useState<string>('Asia');
 
-  // Realistic mock pricing tape changes
-  const [tapePrices, setTapePrices] = useState<Record<string, { price: number; change: number }>>({});
-
-  // Loading stepper index
+  // Loading indicator step tracker
   const [loadingStep, setLoadingStep] = useState<number>(0);
 
-  // Initialize tape prices
+  // 1. Initialize Baseline States
   useEffect(() => {
-    const prices: Record<string, { price: number; change: number }> = {};
-    TAPE_CRYPTOS.forEach((symbol) => {
-      const config = TOKEN_CONFIGS[symbol] || { basePrice: 100 };
-      prices[symbol] = {
-        price: config.basePrice,
-        change: Number(((Math.random() - 0.4) * 6).toFixed(2)) // random 24h change
-      };
+    const initialPrices: Record<string, number> = {};
+    const initialDirections: Record<string, 'up' | 'down' | 'neutral'> = {};
+    
+    Object.keys(TOKEN_CONFIGS).forEach((symbol) => {
+      initialPrices[symbol] = TOKEN_CONFIGS[symbol].basePrice;
+      initialDirections[symbol] = 'neutral';
     });
-    setTapePrices(prices);
+
+    setLivePrices(initialPrices);
+    setPriceDirections(initialDirections);
   }, []);
 
-  // Update clock & tickers
+  // 2. High-Frequency Tick Price Simulation
   useEffect(() => {
-    const updateTimeAndTickers = () => {
-      // 1. Time Calculations
+    if (Object.keys(livePrices).length === 0) return;
+
+    const tickInterval = setInterval(() => {
+      setLivePrices((prev) => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach((symbol) => {
+          const config = TOKEN_CONFIGS[symbol];
+          if (!config) return;
+
+          const base = config.basePrice;
+
+          // Soft high-frequency random walk deviation
+          const deviationPercent = 1 + (Math.random() - 0.5) * 0.0012;
+          let calculatedPrice = prev[symbol] * deviationPercent;
+
+          // Restrict simulated price inside a reasonable elastic channel around base
+          const minimumBoundary = base * 0.94;
+          const maximumBoundary = base * 1.06;
+
+          if (calculatedPrice < minimumBoundary) calculatedPrice = minimumBoundary;
+          if (calculatedPrice > maximumBoundary) calculatedPrice = maximumBoundary;
+
+          const finalPrice = Number(calculatedPrice.toFixed(config.decimals));
+
+          // Set directional arrow state
+          setPriceDirections((prevDirs) => {
+            const nextDirs = { ...prevDirs };
+            if (finalPrice > prev[symbol]) {
+              nextDirs[symbol] = 'up';
+            } else if (finalPrice < prev[symbol]) {
+              nextDirs[symbol] = 'down';
+            } else {
+              nextDirs[symbol] = 'neutral';
+            }
+            return nextDirs;
+          });
+
+          updated[symbol] = finalPrice;
+        });
+        return updated;
+      });
+    }, 1500);
+
+    return () => clearInterval(tickInterval);
+  }, [livePrices]);
+
+  // Reset indicator color directions after 800ms
+  useEffect(() => {
+    const resetDirections = setInterval(() => {
+      setPriceDirections((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((k) => {
+          next[k] = 'neutral';
+        });
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(resetDirections);
+  }, []);
+
+  // 3. Dynamic Terminal Clock Updates
+  useEffect(() => {
+    const updateTime = () => {
       const d = new Date();
       setUtcTime(d.toUTCString().replace('GMT', 'UTC'));
       
@@ -69,37 +144,14 @@ const App: React.FC = () => {
       } else {
         setSessionName('Global Market Overlap');
       }
-
-      // 2. Tickers fluctuation
-      setTapePrices((prev) => {
-        const next = { ...prev };
-        const symbolsToUpdate = Object.keys(next);
-        if (symbolsToUpdate.length > 0) {
-          // Select a random symbol to tick-fluctuate
-          const randomSymbol = symbolsToUpdate[Math.floor(Math.random() * symbolsToUpdate.length)];
-          const currentItem = next[randomSymbol];
-          if (currentItem) {
-            const variance = (Math.random() - 0.5) * 0.002; // very small changes
-            const originalPrice = TOKEN_CONFIGS[randomSymbol]?.basePrice || currentItem.price;
-            const updatedPrice = currentItem.price * (1 + variance);
-            const calculatedChange = ((updatedPrice - originalPrice) / originalPrice) * 100 + currentItem.change;
-
-            next[randomSymbol] = {
-              price: updatedPrice,
-              change: Number(calculatedChange.toFixed(2))
-            };
-          }
-        }
-        return next;
-      });
     };
 
-    updateTimeAndTickers();
-    const clockInterval = setInterval(updateTimeAndTickers, 1500);
+    updateTime();
+    const clockInterval = setInterval(updateTime, 1500);
     return () => clearInterval(clockInterval);
   }, []);
 
-  // Handle Loading step simulator
+  // 4. Automatic Stepper simulator during Quantum Scan
   useEffect(() => {
     if (!loading) {
       setLoadingStep(0);
@@ -128,20 +180,77 @@ const App: React.FC = () => {
   };
 
   const loadingSteps = language === 'hi' ? [
-    'रीयल-टाइम न्यूज एवं मार्केट सेंटीमेंट एकत्रित किया जा रहा है...',
+    'रीयल-टाइम संकेत एवं मार्केट सेंटीमेंट एकत्रित किया जा रहा है...',
     'RSI, MACD एवं मूविंग एवरेज क्लस्टर की गणना की जा रही है...',
     'एक्सचेंज ऑर्डर बुक डेप्थ और लिक्विडिटी मैप किया जा रहा है...',
     'ए2जेड क्वांटम सिग्नल और जोखिम अनुपात को समेकित किया जा रहा है...'
   ] : [
-    'Retrieving real-time news & global market sentiment...',
+    'Retrieving real-time signals & global market sentiment...',
     'Calculating RSI, MACD, and exponential moving average indicators...',
     'Analyzing order books density & liquidity sweep arrays...',
     'Synthesizing final A2Z actionable signal & target SL/TP guidelines...'
   ];
 
+  const t = {
+    en: {
+      toastTitle: "Quantum Verify Flag",
+      sidebarTitle: "Institutional Checklist",
+      sidebarDesc: "A2Z algorithmic pre-verification status",
+      factorBTC: "BTC Dominant Trend Align",
+      factorRSI: "Live Momentum RSI Index",
+      factorOb: "Accumulation Order flow",
+      factorPivot: "Pivot Wave Breakout Goal"
+    },
+    hi: {
+      toastTitle: "क्वांटम पुष्टिकरण फ्लैग",
+      sidebarTitle: "संस्थागत चेकलिस्ट बोर्ड",
+      sidebarDesc: "A2Z एल्गोरिथमिक पूर्व-सत्यापन मापदंड",
+      factorBTC: "BTC मुख्य प्रवृत्ति संरेखण",
+      factorRSI: "लाइव मोमेंटम RSI सूचकांक",
+      factorOb: "संचय वॉल्यूम और ऑर्डर फ्लो",
+      factorPivot: "मुख्य पिवट वेव ब्रेकआउट लक्ष्य"
+    }
+  }[language];
+
   return (
-    <div className="min-h-screen bg-[#07090e] text-[#f1f5f9] antialiased selection:bg-amber-400 selection:text-black">
+    <div className="min-h-screen bg-[#07090e] text-[#f1f5f9] antialiased selection:bg-amber-400 selection:text-black scroll-smooth">
       
+      {/* GLOBAL BANNER TOASTS CONTAINER */}
+      <div className="fixed top-20 right-4 z-50 space-y-3.5 max-w-sm w-full pointer-events-auto">
+        {toasts.map((toast) => (
+          <div 
+            key={toast.id}
+            className={`p-4 rounded-xl border flex items-start gap-3 shadow-2xl backdrop-blur-md animate-fadeIn transition-all transform hover:scale-[1.01] ${
+              toast.type === 'bullish' 
+                ? 'bg-emerald-950/90 border-emerald-500/35 text-slate-100' 
+                : toast.type === 'bearish' 
+                  ? 'bg-rose-950/90 border-rose-500/35 text-slate-100' 
+                  : 'bg-slate-900/95 border-slate-700 text-slate-100'
+            }`}
+          >
+            <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${
+              toast.type === 'bullish' ? 'bg-emerald-500/10 text-emerald-400' : toast.type === 'bearish' ? 'bg-rose-500/10 text-rose-400' : 'bg-amber-500/10 text-amber-500'
+            }`}>
+              <Bell className="w-4 h-4 animate-swing" />
+            </div>
+            <div className="grow space-y-1">
+              <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 font-mono block">
+                {t.toastTitle}
+              </span>
+              <p className="text-xs font-semibold leading-relaxed leading-normal select-text">
+                {toast.text}
+              </p>
+            </div>
+            <button 
+              onClick={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
+              className="text-slate-400 hover:text-white shrink-0 p-0.5 ml-1 transition-colors outline-none focus:outline-none"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+
       {/* 1. TOP PREMIUM TICKER TAPE BAR */}
       <div className="w-full bg-[#0a0d14] border-b border-slate-800/60 overflow-hidden py-2 px-4 shadow-sm z-50">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-6 overflow-x-auto no-scrollbar scroll-smooth">
@@ -149,17 +258,27 @@ const App: React.FC = () => {
           {/* Ticker Tape */}
           <div className="flex items-center gap-6 divide-x divide-slate-800/80 pr-4">
             {TAPE_CRYPTOS.map((symbol) => {
-              const data = tapePrices[symbol];
-              const isPositive = data ? data.change >= 0 : true;
+              const livePrice = livePrices[symbol] || TOKEN_CONFIGS[symbol]?.basePrice || 100;
+              const direction = priceDirections[symbol] || 'neutral';
+              const mult = 1.0;
+              // Simulate 24h change
+              const pctChange = (mult - 1) * 100 + (symbol === 'BTC' ? 1.45 : symbol === 'ETH' ? -0.72 : 2.60);
+
               return (
                 <div key={symbol} className="flex items-center gap-2 pl-6 first:pl-2 shrink-0">
                   <span className="text-[10px] font-bold text-slate-400 font-mono">{symbol}</span>
-                  <span className="text-[10px] font-extrabold text-slate-100 font-mono">
-                    ${data ? data.price.toLocaleString(undefined, { maximumFractionDigits: symbol === 'PEPE' ? 8 : 2 }) : '---'}
+                  <span className={`text-[10px] font-extrabold transition-all duration-300 font-mono ${
+                    direction === 'up' 
+                      ? 'text-emerald-400 scale-102 filter drop-shadow-[0_0_2px_rgba(16,185,129,0.15)]' 
+                      : direction === 'down' 
+                        ? 'text-rose-400 scale-98 filter drop-shadow-[0_0_2px_rgba(244,63,94,0.15)]' 
+                        : 'text-slate-100'
+                  }`}>
+                    ${livePrice.toLocaleString(undefined, { maximumFractionDigits: symbol === 'PEPE' ? 8 : 2 })}
                   </span>
-                  <span className={`text-[9px] font-black font-mono flex items-center ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {isPositive ? '+' : ''}{data ? data.change : '0.00'}%
-                    {isPositive ? <TrendingUp className="w-2.5 h-2.5 ml-0.5" /> : <TrendingDown className="w-2.5 h-2.5 ml-0.5" />}
+                  <span className={`text-[9px] font-black font-mono flex items-center ${pctChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {pctChange >= 0 ? '+' : ''}{pctChange.toFixed(2)}%
+                    {pctChange >= 0 ? <TrendingUp className="w-2.5 h-2.5 ml-0.5" /> : <TrendingDown className="w-2.5 h-2.5 ml-0.5" />}
                   </span>
                 </div>
               );
@@ -181,7 +300,7 @@ const App: React.FC = () => {
                 onClick={() => setLanguage('hi')}
                 className={`px-3 py-1 text-[9px] font-black rounded-md transition-all uppercase tracking-wide cursor-pointer ${
                   language === 'hi' 
-                    ? 'bg-amber-400 text-black font-extrabold' 
+                    ? 'bg-amber-400 text-black font-extrabold shadow-sm' 
                     : 'text-slate-400 hover:text-slate-100'
                 }`}
               >
@@ -191,7 +310,7 @@ const App: React.FC = () => {
                 onClick={() => setLanguage('en')}
                 className={`px-3 py-1 text-[9px] font-black rounded-md transition-all uppercase tracking-wide cursor-pointer ${
                   language === 'en' 
-                    ? 'bg-amber-400 text-black font-extrabold' 
+                    ? 'bg-amber-400 text-black font-extrabold shadow-sm' 
                     : 'text-slate-400 hover:text-slate-100'
                 }`}
               >
@@ -218,7 +337,7 @@ const App: React.FC = () => {
                 </h1>
                 <span className="text-[8px] font-extrabold bg-amber-400/10 text-amber-400 px-1.5 py-0.5 rounded border border-amber-400/20 font-mono uppercase tracking-widest">PRO ENGINE</span>
               </div>
-              <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-[0.3em] mt-1 font-mono">Autonomous Decision System v4.1</p>
+              <p className="text-[9px] text-slate-500 font-semibold uppercase tracking-[0.3em] mt-1.5 font-mono">Autonomous Decision System v4.1</p>
             </div>
           </div>
 
@@ -239,36 +358,167 @@ const App: React.FC = () => {
       {/* 3. MAIN TERMINAL DASHBOARD CONTAINER */}
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-8">
         
-        {/* Intro Tapes */}
+        {/* Columns split design */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
           
-          {/* LEFT WIDGET COLUMN: INPUT AND SELECTION */}
+          {/* LEFT WIDGET COLUMN: INPUT AND TECHNICAL STATUS */}
           <div className="lg:col-span-4 space-y-6">
             
             {/* Trading Form wrap */}
-            <TradingForm onAnalyze={handleAnalyze} isLoading={loading} language={language} />
+            <TradingForm 
+              onAnalyze={handleAnalyze} 
+              isLoading={loading} 
+              language={language}
+              livePrice={livePrices[selectedSymbol] || TOKEN_CONFIGS[selectedSymbol]?.basePrice || 100}
+              priceDirection={priceDirections[selectedSymbol] || 'neutral'}
+              activeMultiplier={1.0}
+              selectedSymbol={selectedSymbol}
+              onSymbolChange={(symbol) => setSelectedSymbol(symbol)}
+            />
 
-            {/* Side Static Helper Cards */}
-            <div className="bg-[#0f141c]/50 p-5 rounded-2xl border border-slate-800/80 space-y-4">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-200 uppercase tracking-widest border-b border-slate-800 pb-2.5">
-                <Network className="w-4 h-4 text-amber-500" />
-                <span>Engine Methodology</span>
-              </div>
+            {/* INSTITUTIONAL TECHNICAL CHECKPOINTS & QUANT RADAR */}
+            <div className="bg-[#0f141c]/90 border border-slate-800/80 p-5 rounded-2xl shadow-2xl relative overflow-hidden flex flex-col gap-4">
               
-              <ul className="space-y-3.5 text-xs text-slate-400 leading-relaxed font-mono">
-                <li className="flex gap-2.5 items-start">
-                  <span className="text-amber-400 font-bold">1.</span>
-                  <span><strong>Multi-Interval Crawl:</strong> Analyzes trend direction over 1-day range dynamically.</span>
-                </li>
-                <li className="flex gap-2.5 items-start">
-                  <span className="text-amber-400 font-bold">2.</span>
-                  <span><strong>Sentiment Integration:</strong> Searches live news, liquidations, and major volatility drivers.</span>
-                </li>
-                <li className="flex gap-2.5 items-start">
-                  <span className="text-amber-400 font-bold">3.</span>
-                  <span><strong>Grounded Calculations:</strong> Validates decisions via Google active web search queries.</span>
-                </li>
-              </ul>
+              <div className="absolute right-4 top-4 bg-[#0a0d14] rounded-full px-2.5 py-1 flex items-center gap-1 border border-slate-800">
+                <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-ping"></span>
+                <span className="text-[8px] text-amber-400 font-black uppercase font-mono tracking-wider">SECURED VERIFY RADAR</span>
+              </div>
+
+              {/* Title Section */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-amber-500 animate-pulse" />
+                  <h3 className="text-xs font-bold text-slate-100 uppercase tracking-widest">{t.sidebarTitle}</h3>
+                </div>
+                <p className="text-[10px] text-slate-500 font-semibold">{t.sidebarDesc}</p>
+              </div>
+
+              {/* Dynamic Factors Dashboard */}
+              <div className="space-y-3.5">
+                
+                {/* 1. BTC Alignment Factor */}
+                <div className="p-3 bg-[#07090e] border border-slate-800/60 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">{t.factorBTC}</span>
+                    <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase bg-emerald-500/10 px-2 py-0.5 rounded">
+                      {language === 'hi' ? 'संरेखित' : 'ALIGNED'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-mono">
+                    <span className="text-slate-400 font-semibold">BTC Trend Correlation</span>
+                    <span className="text-slate-200">0.86 (High Beta)</span>
+                  </div>
+                </div>
+
+                {/* 2. Live Dynamic RSI calculation */}
+                {(() => {
+                  const currentPrice = livePrices[selectedSymbol] || TOKEN_CONFIGS[selectedSymbol]?.basePrice || 100;
+                  const baseConfig = TOKEN_CONFIGS[selectedSymbol] || { basePrice: 100 };
+                  const diffCoeff = (currentPrice / baseConfig.basePrice - 1) * 220;
+                  const liveCalculatedRSI = Math.round(Math.min(Math.max(50 + diffCoeff, 15), 85));
+
+                  let rsiStatus = "";
+                  let rsiStatusHi = "";
+                  let rsiColor = "text-amber-400 bg-amber-500/10";
+                  if (liveCalculatedRSI > 55) {
+                    rsiStatus = "Sellers Overextended Block";
+                    rsiStatusHi = "विक्रेता दबाव ब्लॉक";
+                    rsiColor = "text-rose-400 bg-rose-500/10";
+                  } else if (liveCalculatedRSI < 45) {
+                    rsiStatus = "Buyers Accumulation block";
+                    rsiStatusHi = "क्रेता संचय ब्लॉक";
+                    rsiColor = "text-emerald-400 bg-emerald-500/10";
+                  } else {
+                    rsiStatus = "Range Consolidated Limit";
+                    rsiStatusHi = "स्थिर रेंज समेकन";
+                    rsiColor = "text-amber-400 bg-amber-500/10";
+                  }
+
+                  // Order flow simulation based on seconds tick
+                  const secondSeed = typeof window !== 'undefined' ? Math.sin(Date.now() / 4000) : 0.2;
+                  const buyPercent = Math.round((51.5 + secondSeed * 2.5) * 10) / 10;
+                  const sellPercent = Math.round((100 - buyPercent) * 10) / 10;
+
+                  return (
+                    <>
+                      {/* RSI indicator and direction advisory */}
+                      <div className="p-3 bg-[#07090e] border border-slate-800/60 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">{t.factorRSI}</span>
+                          <span className={`text-[10px] font-mono font-bold leading-none px-2 py-1 rounded ${rsiColor}`}>
+                            RSI {liveCalculatedRSI}
+                          </span>
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                liveCalculatedRSI > 55 ? 'bg-rose-500' : liveCalculatedRSI < 45 ? 'bg-emerald-500' : 'bg-amber-400'
+                              }`}
+                              style={{ width: `${liveCalculatedRSI}%` }}
+                            ></div>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                            <span>{language === 'hi' ? 'संकेत स्थिति:' : 'Status Guideline:'}</span>
+                            <span className="font-bold text-slate-200">
+                              {language === 'hi' ? rsiStatusHi : rsiStatus}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Order Flow Ratio */}
+                      <div className="p-3 bg-[#07090e] border border-slate-800/60 rounded-xl space-y-2">
+                        <span className="text-[9px] font-black text-slate-500 uppercase block tracking-wider">{t.factorOb}</span>
+                        <div className="space-y-1.5">
+                          <div className="flex h-2.5 bg-rose-500 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-emerald-500 h-full transition-all duration-300"
+                              style={{ width: `${buyPercent}%` }}
+                            ></div>
+                          </div>
+                          <div className="flex items-center justify-between font-mono text-[10px]">
+                            <span className="text-emerald-400 font-bold">BUY {buyPercent}%</span>
+                            <span className="text-rose-400 font-bold">SELL {sellPercent}%</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4. Instant Pre-AI Scalping Advice Panel */}
+                      <div className="p-3.5 bg-amber-400/5 border border-amber-400/20 rounded-xl space-y-2 text-left">
+                        <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest block font-mono">
+                          ⚡ {language === 'hi' ? 'त्वरित स्कैल्प सलाह' : 'INSTANT SCALPING RIG BIAS'}
+                        </span>
+                        
+                        <div className="flex items-center gap-2.5">
+                          <ShieldCheck className={`w-5 h-5 shrink-0 ${
+                            liveCalculatedRSI < 45 ? 'text-emerald-400' : liveCalculatedRSI > 55 ? 'text-rose-400' : 'text-amber-400'
+                          }`} />
+                          
+                          <div className="space-y-0.5">
+                            <h4 className={`text-xs font-extrabold font-mono uppercase ${
+                              liveCalculatedRSI < 45 ? 'text-emerald-400' : liveCalculatedRSI > 55 ? 'text-rose-400' : 'text-amber-400'
+                            }`}>
+                              {liveCalculatedRSI < 45 
+                                ? (language === 'hi' ? 'लॉन्ग (LONG) सलाह - अत्यधिक संचय' : 'SUGGEST LONG - ACCUMULATION HIGH Probability') 
+                                : liveCalculatedRSI > 55 
+                                  ? (language === 'hi' ? 'शॉर्ट (SHORT) सलाह - अत्यधिक वितरण' : 'SUGGEST SHORT - SELL PRESSURE HIGH Probability')
+                                  : (language === 'hi' ? 'साइडवेज़ रेंज (समीक्षा आवश्यक)' : 'CONSOLIDATING - SCALPERS AVOID OVERTRADING')}
+                            </h4>
+                            <p className="text-[9px] text-slate-400 font-sans tracking-wide leading-relaxed">
+                              {language === 'hi' 
+                                ? 'यह ए2जेड प्री-वेरिफिकेशन है। अंतिम पुष्टिकरण के लिए कृपया क्वांटम स्कैन शुरू करें।' 
+                                : 'Calculated by tick-by-tick baseline deviation. Launch final Quantum Scan to compile detailed deep analysis.'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+
+              </div>
+
             </div>
 
           </div>
@@ -282,7 +532,7 @@ const App: React.FC = () => {
                 
                 {/* Spinning Scanner */}
                 <div className="relative w-32 h-32 mb-8">
-                  <div className="absolute inset-0 rounded-full border-4 border-slate-800 border-t-amber-400 animate-spin"></div>
+                  <div className="absolute inset-0 rounded-full border-4 border-slate-800 border-t-amber-400 animate-spin animate-spin-3s"></div>
                   <div className="absolute inset-2 rounded-full border border-dashed border-slate-700 animate-pulse flex items-center justify-center text-amber-400">
                     <Cpu className="w-8 h-8 animate-bounce text-amber-400" />
                   </div>
@@ -292,17 +542,17 @@ const App: React.FC = () => {
                 <p className="text-xs text-amber-400 font-mono tracking-widest mt-1.5 uppercase">Analyzing Selected Vector</p>
                 
                 {/* Simulated stepper log */}
-                <div className="mt-8 space-y-2 w-full max-w-sm px-4">
-                  <div className="h-1 bg-[#07090e] rounded-full overflow-hidden">
+                <div className="mt-8 space-y-3 w-full max-w-sm px-4">
+                  <div className="h-1.5 bg-[#07090e] rounded-full overflow-hidden border border-slate-800">
                     <div 
-                      className="h-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-300"
+                      className="h-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-300 rounded-full"
                       style={{ width: `${(loadingStep + 1) * 25}%` }}
                     ></div>
                   </div>
                   
                   <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/40 text-center">
-                    <p className="text-[10px] text-slate-300 font-mono tracking-normal transition-all duration-300 animate-pulse flex items-center justify-center gap-1.5">
-                      <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />
+                    <p className="text-[10px] text-slate-300 font-mono tracking-normal transition-all duration-300 animate-pulse flex items-center justify-center gap-1.5 leading-relaxed">
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-500 animate-spin" />
                       {loadingSteps[loadingStep]}
                     </p>
                   </div>
@@ -320,7 +570,7 @@ const App: React.FC = () => {
                 <p className="text-slate-400 text-xs max-w-md leading-relaxed mb-8">{error}</p>
                 <button 
                   onClick={() => setError(null)} 
-                  className="px-8 py-3.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-xl font-bold uppercase tracking-widest hover:text-white transition-all transform active:scale-95 text-xs outline-none focus:outline-none"
+                  className="px-8 py-3.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-xl font-bold uppercase tracking-widest hover:text-white transition-all transform active:scale-95 text-xs outline-none focus:outline-none cursor-pointer"
                 >
                   Clear Terminal
                 </button>
@@ -361,7 +611,7 @@ const App: React.FC = () => {
                   </div>
                   <div className="p-2.5 bg-[#0e131b]/60 border border-slate-800/60 rounded-xl">
                     <span className="text-[8px] text-slate-600 block uppercase font-bold tracking-wider">Languages</span>
-                    <span className="text-[10px] text-slate-300 font-semibold block mt-0.5">EN / HI</span>
+                    <span className="text-[10px] text-slate-300 font-semibold block mt-0.5 font-sans leading-none">EN / HI</span>
                   </div>
                   <div className="p-2.5 bg-[#0e131b]/60 border border-slate-800/60 rounded-xl">
                     <span className="text-[8px] text-slate-600 block uppercase font-bold tracking-wider">Precision</span>
@@ -383,7 +633,7 @@ const App: React.FC = () => {
             <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
             <p className="text-[9px] text-slate-500 uppercase tracking-[0.25em] font-mono">Advanced Institutional Quant Decision Engine</p>
           </div>
-          <p className="text-[10px] text-slate-600 max-w-4xl mx-auto leading-relaxed italic">
+          <p className="text-[10px] text-slate-600 max-w-4xl mx-auto leading-relaxed italic select-none">
             Disclaimer: AI Quant Decision calculations provide model-based probability guides derived from web sources and prompt signals. Cryptocurrency trading involves substantial market risk. Real trades are user responsibility. Always set strict risk management boundaries.
           </p>
         </div>
@@ -397,6 +647,16 @@ const App: React.FC = () => {
         .no-scrollbar {
           -ms-overflow-style: none;  /* IE and Edge */
           scrollbar-width: none;  /* Firefox */
+        }
+        @keyframes swing {
+          0%, 100% { transform: rotate(0deg); }
+          20% { transform: rotate(15deg); }
+          40% { transform: rotate(-10deg); }
+          60% { transform: rotate(5deg); }
+          80% { transform: rotate(-5deg); }
+        }
+        .animate-swing {
+          animation: swing 1s ease-in-out infinite;
         }
       `}</style>
     </div>

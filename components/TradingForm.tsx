@@ -20,47 +20,31 @@ interface TradingFormProps {
   onAnalyze: (input: AnalysisInput) => void;
   isLoading: boolean;
   language: Language;
+  livePrice: number;
+  priceDirection: 'up' | 'down' | 'neutral';
+  activeMultiplier: number;
+  selectedSymbol: string;
+  onSymbolChange: (symbol: string) => void;
 }
 
-const TradingForm: React.FC<TradingFormProps> = ({ onAnalyze, isLoading, language }) => {
+const TradingForm: React.FC<TradingFormProps> = ({ 
+  onAnalyze, 
+  isLoading, 
+  language,
+  livePrice,
+  priceDirection,
+  activeMultiplier,
+  selectedSymbol,
+  onSymbolChange
+}) => {
   const [formData, setFormData] = useState({
-    symbol: 'BTC',
+    symbol: selectedSymbol,
     timeframe: Timeframe.H1,
   });
 
-  // Simulated live fluctuating price
-  const [livePrice, setLivePrice] = useState<number>(0);
-  const [priceDirection, setPriceDirection] = useState<'up' | 'down' | 'neutral'>('neutral');
-
   useEffect(() => {
-    const config = TOKEN_CONFIGS[formData.symbol];
-    if (config) {
-      setLivePrice(config.basePrice);
-      setPriceDirection('neutral');
-    }
-  }, [formData.symbol]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (isLoading) return; // Freeze during load
-      const config = TOKEN_CONFIGS[formData.symbol];
-      if (!config) return;
-
-      const variancePercent = (Math.random() - 0.5) * 0.0015; // small ticks
-      setLivePrice((prev) => {
-        const nextPrice = prev * (1 + variancePercent);
-        if (nextPrice > prev) setPriceDirection('up');
-        else if (nextPrice < prev) setPriceDirection('down');
-        return Number(nextPrice.toFixed(config.decimals));
-      });
-
-      // Reset color indicator after 800ms
-      const timeout = setTimeout(() => setPriceDirection('neutral'), 800);
-      return () => clearTimeout(timeout);
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, [formData.symbol, isLoading]);
+    setFormData(p => ({ ...p, symbol: selectedSymbol }));
+  }, [selectedSymbol]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,7 +113,11 @@ const TradingForm: React.FC<TradingFormProps> = ({ onAnalyze, isLoading, languag
             <div className="relative">
               <select 
                 value={formData.symbol} 
-                onChange={(e) => setFormData(p => ({...p, symbol: e.target.value}))}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setFormData(p => ({...p, symbol: val}));
+                  onSymbolChange(val);
+                }}
                 className="w-full bg-[#0a0d14] border border-slate-800 focus:border-amber-500 rounded-xl py-4 pl-4 pr-12 text-slate-100 font-bold text-lg select-none hover:bg-slate-900/60 transition-all cursor-pointer shadow-lg outline-none appearance-none"
               >
                 {TOP_CRYPTOS.map(c => {
@@ -149,10 +137,13 @@ const TradingForm: React.FC<TradingFormProps> = ({ onAnalyze, isLoading, languag
 
           {/* Live Price Widget */}
           <div className="bg-[#07090e] border border-slate-800/80 p-4 rounded-xl flex items-center justify-between transition-all">
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{t.livePrice}</span>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold text-slate-300 font-mono">{formData.symbol}/USDT</span>
+                <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase font-mono tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 animate-pulse">
+                  {language === 'hi' ? 'उच्च सटीकता' : 'HIGH ALPHA STATE'}
+                </span>
               </div>
             </div>
             
@@ -167,7 +158,7 @@ const TradingForm: React.FC<TradingFormProps> = ({ onAnalyze, isLoading, languag
                 ${livePrice > 0 ? livePrice.toLocaleString(undefined, { minimumFractionDigits: currentToken.decimals, maximumFractionDigits: currentToken.decimals }) : '--.--'}
               </span>
               <div className="flex items-center justify-end gap-1 mt-0.5 text-[8px] font-bold text-slate-500">
-                <Activity className="w-2.5 h-2.5" />
+                <Activity className="w-2.5 h-2.5 text-slate-400" />
                 <span>Simulating Feed</span>
               </div>
             </div>

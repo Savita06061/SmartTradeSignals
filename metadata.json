@@ -1,0 +1,5 @@
+{
+  "name": "CryptoPro Analyst",
+  "description": "A professional crypto trading assistant that leverages Gemini AI and Google Search grounding to provide high-probability trade setups for top-tier cryptocurrencies.",
+  "requestFramePermissions": []
+}

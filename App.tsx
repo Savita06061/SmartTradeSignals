@@ -52,7 +52,7 @@ const App: React.FC = () => {
   // Loading indicator step tracker
   const [loadingStep, setLoadingStep] = useState<number>(0);
 
-  // 1. Initialize Baseline States
+  // 1. Initialize Baseline States & Polling Server Price Feed
   useEffect(() => {
     const initialPrices: Record<string, number> = {};
     const initialDirections: Record<string, 'up' | 'down' | 'neutral'> = {};
@@ -64,9 +64,57 @@ const App: React.FC = () => {
 
     setLivePrices(initialPrices);
     setPriceDirections(initialDirections);
+
+    // Fetch actual real-time prices from the backend exchange API
+    const fetchRealPrices = async () => {
+      try {
+        const response = await fetch("/api/prices");
+        if (response.ok) {
+          const prices = await response.json() as Record<string, number>;
+          if (prices && Object.keys(prices).length > 0) {
+            setLivePrices((prev) => {
+              const nextPrices = { ...prev };
+              const nextDirections: Record<string, 'up' | 'down' | 'neutral'> = {};
+
+              Object.keys(prices).forEach((symbol) => {
+                const realPrice = prices[symbol];
+                if (realPrice && TOKEN_CONFIGS[symbol]) {
+                  // Dynamically calibrate standard metrics to match live prices
+                  TOKEN_CONFIGS[symbol].basePrice = realPrice;
+
+                  const prevPrice = prev[symbol] || realPrice;
+                  nextPrices[symbol] = realPrice;
+
+                  if (realPrice > prevPrice) {
+                    nextDirections[symbol] = 'up';
+                  } else if (realPrice < prevPrice) {
+                    nextDirections[symbol] = 'down';
+                  } else {
+                    nextDirections[symbol] = 'neutral';
+                  }
+                }
+              });
+
+              setPriceDirections((prevDirs) => ({
+                ...prevDirs,
+                ...nextDirections
+              }));
+
+              return nextPrices;
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Could not retrieve real-time prices:", err);
+      }
+    };
+
+    fetchRealPrices();
+    const priceInterval = setInterval(fetchRealPrices, 4000);
+    return () => clearInterval(priceInterval);
   }, []);
 
-  // 2. High-Frequency Tick Price Simulation
+  // 2. High-Frequency Tick Price Simulation (Continuous ambient micro-oscillation)
   useEffect(() => {
     if (Object.keys(livePrices).length === 0) return;
 
@@ -79,16 +127,16 @@ const App: React.FC = () => {
 
           const base = config.basePrice;
 
-          // Soft high-frequency random walk deviation
-          const deviationPercent = 1 + (Math.random() - 0.5) * 0.0012;
-          let calculatedPrice = prev[symbol] * deviationPercent;
+          // Soft continuous micro-tick between api polls (0.01% - 0.05%)
+          const microFluctuation = 1 + (Math.random() - 0.5) * 0.0006;
+          let calculatedPrice = prev[symbol] * microFluctuation;
 
-          // Restrict simulated price inside a reasonable elastic channel around base
-          const minimumBoundary = base * 0.94;
-          const maximumBoundary = base * 1.06;
+          // Elastic bound inside 1.5% of real-world baseline price to prevent wild drift
+          const minBound = base * 0.985;
+          const maxBound = base * 1.015;
 
-          if (calculatedPrice < minimumBoundary) calculatedPrice = minimumBoundary;
-          if (calculatedPrice > maximumBoundary) calculatedPrice = maximumBoundary;
+          if (calculatedPrice < minBound) calculatedPrice = minBound;
+          if (calculatedPrice > maxBound) calculatedPrice = maxBound;
 
           const finalPrice = Number(calculatedPrice.toFixed(config.decimals));
 
@@ -99,8 +147,6 @@ const App: React.FC = () => {
               nextDirs[symbol] = 'up';
             } else if (finalPrice < prev[symbol]) {
               nextDirs[symbol] = 'down';
-            } else {
-              nextDirs[symbol] = 'neutral';
             }
             return nextDirs;
           });
